@@ -167,20 +167,12 @@ curl https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/profile/torvalds
 
 ---
 
-## 📽️ Results
+ffmpeg -i demo.mov \
+  -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p \
+  -c:a aac -b:a 128k \
+  -movflags +faststart \
+  demo.mp4
 
-- The system successfully ingests GitHub user data, stores it in S3 + DynamoDB, and serves it via API Gateway.  
-- The UI allows entering any username and displays:
-  - Profile summary
-  - Repository list in tabular format
-  - Latest GitHub activity  
-
-🎥 **Demo:**  
-<video controls width="720">
-  <source src="results/demo.mp4?raw=1" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
----
 
 ## 🛡️ Next Steps & Enhancements
 
