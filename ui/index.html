@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GitHub Profile Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --fg:#0f172a; --muted:#64748b; --accent:#0ea5e9; --bg:#f8fafc; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; background: var(--bg); color: var(--fg);}
+    .wrap { max-width: 860px; margin: 48px auto; padding: 0 16px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p.sub { margin: 0 0 24px; color: var(--muted); }
+    form { display: flex; gap: 8px; margin-bottom: 24px; }
+    input[type=text] { flex: 1; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 16px; }
+    button { padding: 12px 16px; border-radius: 10px; border: 0; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
+    button:disabled{opacity:.6; cursor:not-allowed;}
+    .card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 2px rgba(16,24,40,.05); padding: 16px; margin-bottom: 16px; }
+    .kvs { display: grid; grid-template-columns: 180px 1fr; row-gap: 8px; column-gap: 12px; }
+    .kvs div:first-child { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+    .muted { color: var(--muted); }
+    .err { color: #b91c1c; font-weight: 600; }
+    footer { margin-top: 24px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>GitHub Profile Viewer</h1>
+    <p class="sub">Type a GitHub username. The app will ingest and display their repos + latest activity.</p>
+
+    <form id="form">
+      <input id="username" type="text" placeholder="e.g. torvalds" required />
+      <button id="go" type="submit">Fetch</button>
+    </form>
+
+    <div id="msg" class="muted"></div>
+
+    <div id="results" style="display:none">
+      <div class="card">
+        <h3 style="margin-top:0">Summary</h3>
+        <div class="kvs">
+          <div>Name</div><div id="name" class="muted">—</div>
+          <div>Login</div><div id="login" class="muted">—</div>
+          <div>Total Public Repos</div><div id="repoCount" class="muted">—</div>
+          <div>Latest Activity</div><div id="latest" class="muted">—</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Repositories</h3>
+        <table id="repoTable">
+          <thead><tr><th>Repository</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer>Powered by API Gateway + Lambda + DynamoDB (frontend on S3/CloudFront)</footer>
+  </div>
+
+<script>
+const API_BASE = "https://el43zdu7dh.execute-api.us-east-2.amazonaws.com/prod"; // <- your API base
+
+const form = document.getElementById("form");
+const usernameInput = document.getElementById("username");
+const msg = document.getElementById("msg");
+const results = document.getElementById("results");
+const nameEl = document.getElementById("name");
+const loginEl = document.getElementById("login");
+const repoCountEl = document.getElementById("repoCount");
+const latestEl = document.getElementById("latest");
+const repoTbody = document.querySelector("#repoTable tbody");
+const goBtn = document.getElementById("go");
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+async function ingestUser(u) {
+  const res = await fetch(`${API_BASE}/ingest`, {
+    method: "POST",
+    mode: "cors",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: u, max_items: 200 })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Ingest failed: HTTP ${res.status} — ${txt}`);
+  }
+}
+
+async function getProfile(u) {
+  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(u)}`, { mode: "cors" });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Profile fetch failed: HTTP ${res.status} — ${txt}`);
+  }
+  return res.json();
+}
+
+async function fetchWithIngest(u) {
+  // Kick off ingest, then poll profile with backoff (total ~10s)
+  await ingestUser(u);
+  const delays = [1200, 1500, 1800, 2200, 2600]; // ms
+  for (let i = 0; i < delays.length; i++) {
+    await new Promise(r => setTimeout(r, delays[i]));
+    try {
+      const data = await getProfile(u);
+      return data; // Success
+    } catch (e) {
+      // Keep trying unless last attempt
+      if (i === delays.length - 1) throw e;
+    }
+  }
+}
+
+function render(data, usernameFallback) {
+  const profile = data.profile || {};
+  const repos = Array.isArray(data.repositories) ? data.repositories
+                : Array.isArray(data.topRepositories) ? data.topRepositories.map(r => r.name).filter(Boolean)
+                : [];
+  const count = (typeof data.repositoriesCount === "number")
+                ? data.repositoriesCount
+                : (profile.public_repos ?? repos.length);
+  const latest = data.latestActivityAt
+                 || (Array.isArray(data.recentActivity) && data.recentActivity[0]?.at)
+                 || profile.updated_at;
+
+  nameEl.textContent  = profile.name ?? "—";
+  loginEl.textContent = profile.login ?? usernameFallback;
+  repoCountEl.textContent = count;
+  latestEl.textContent = fmtDate(latest);
+
+  repoTbody.innerHTML = "";
+  if (repos.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="muted">No repositories found.</td>`;
+    repoTbody.appendChild(tr);
+  } else {
+    for (const name of repos) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${name}</td>`;
+      repoTbody.appendChild(tr);
+    }
+  }
+
+  results.style.display = "";
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const u = usernameInput.value.trim().toLowerCase();
+  if (!u) return;
+  msg.textContent = "Ingesting… fetching data from GitHub (this may take a few seconds)…";
+  goBtn.disabled = true;
+  results.style.display = "none";
+  try {
+    const data = await fetchWithIngest(u);
+    msg.textContent = "";
+    render(data, u);
+  } catch (err) {
+    msg.innerHTML = `<span class="err">Error:</span> ${err.message}`;
+  } finally {
+    goBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
