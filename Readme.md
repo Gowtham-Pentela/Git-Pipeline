@@ -176,9 +176,10 @@ curl https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/profile/torvalds
   - Latest GitHub activity  
 
 🎥 **Demo:**  
-[![Watch the demo](results/demo.png)](results/demo.mp4)
-
-
+<video controls width="720">
+  <source src="results/demo.mp4?raw=1" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 ---
 
 ## 🛡️ Next Steps & Enhancements
