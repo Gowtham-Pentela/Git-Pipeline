@@ -167,9 +167,14 @@ curl https://<api-id>.execute-api.us-east-2.amazonaws.com/prod/profile/torvalds
 
 ## 📽️ Results
 
-Here is a demo of the project in action:
+- The system successfully ingests GitHub user data, stores it in S3 + DynamoDB, and serves it via API Gateway.  
+- The UI allows entering any username and displays:
+  - Profile summary
+  - Repository list in tabular format
+  - Latest GitHub activity  
 
-[Watch the demo](results/demo.mp4)
+🎥 **Demo:**  
+[![Watch the demo](results/demo.png)](results/demo.mp4)
 
 
 
